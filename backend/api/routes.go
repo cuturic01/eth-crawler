@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cuturic01/eth-crawler/backend/eth"
 	"github.com/gin-gonic/gin"
@@ -78,5 +80,57 @@ func (handler *Handler) GetTxs(ctx *gin.Context) {
 }
 
 func (handler *Handler) GetBalanceAt(ctx *gin.Context) {
+	addr := cleanAddr(ctx.Param("address"))
+	dateStr := ctx.Query("date")
+	token := strings.TrimSpace(ctx.DefaultQuery("token", "ETH"))
 
+	if dateStr == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "missing ?date=YYYY-MM-DD"})
+		return
+	}
+
+	t, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid date format"})
+		return
+	}
+	utcMidnight := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC).Unix()
+
+	blockNo, err := handler.ethClient.BlockNumberAtUTC(utcMidnight)
+	if err != nil {
+		ctx.JSON(http.StatusBadGateway, gin.H{"error": "getblocknobytime failed", "detail": err.Error()})
+		return
+	}
+
+	ctx2, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if token == "" || strings.EqualFold(token, "ETH") {
+		bal, err := handler.ethClient.ETHBalanceAtBlock(ctx2, addr, blockNo)
+		if err != nil {
+			ctx.JSON(http.StatusBadGateway, gin.H{"error": "eth_getBalance failed", "detail": err.Error()})
+			return
+		}
+		ctx.JSON(http.StatusOK, gin.H{
+			"address":     addr,
+			"token":       "ETH",
+			"dateUTC":     dateStr,
+			"blockAtDate": blockNo,
+			"balanceWei":  bal.String(),
+		})
+		return
+	}
+
+	bal, err := handler.ethClient.ERC20BalanceAtBlock(ctx2, token, addr, blockNo)
+	if err != nil {
+		ctx.JSON(http.StatusBadGateway, gin.H{"error": "eth_call(balanceOf) failed", "detail": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{
+		"address":     addr,
+		"token":       token,
+		"dateUTC":     dateStr,
+		"blockAtDate": blockNo,
+		"balanceRaw":  bal.String(),
+	})
 }
