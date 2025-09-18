@@ -2,21 +2,26 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cuturic01/eth-crawler/backend/domain"
 	"github.com/cuturic01/eth-crawler/backend/eth"
+	"github.com/cuturic01/eth-crawler/backend/storage"
 	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
 	ethClient *eth.Client
+	cache     *storage.Cache
 }
 
-func InitRoutes(server *gin.Engine, ethClient *eth.Client) {
-	handler := &Handler{ethClient: ethClient}
+func InitRoutes(server *gin.Engine, ethClient *eth.Client, cache *storage.Cache) {
+	handler := &Handler{ethClient: ethClient, cache: cache}
 	routes := server.Group("/api")
 	{
 		routes.GET("/", handler.AddressMetaData)
@@ -49,13 +54,33 @@ func (handler *Handler) GetTxs(ctx *gin.Context) {
 	page, _ := strconv.Atoi(ctx.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(ctx.DefaultQuery("pageSize", "50"))
 
+	key := fmt.Sprintf("txs:%s:%d:%d", strings.ToLower(addr), start, end)
+	cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if raw, ok, err := handler.cache.Get(cctx, key); err == nil && ok {
+		var cached domain.TxListResp
+		if err := json.Unmarshal([]byte(raw), &cached); err == nil {
+			paginateAndRespond(ctx, cached.Result, page, size)
+			return
+		}
+	}
+
 	resp, err := handler.ethClient.TxList(addr, start, end)
 	if err != nil {
 		ctx.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 
-	total := len(resp.Result)
+	if b, err := json.Marshal(resp); err == nil {
+		_ = handler.cache.Set(context.Background(), key, string(b), 5*time.Minute)
+	}
+
+	paginateAndRespond(ctx, resp.Result, page, size)
+}
+
+func paginateAndRespond(ctx *gin.Context, items []domain.TxListRow, page, size int) {
+	total := len(items)
 	if size <= 0 || size > 200 {
 		size = 50
 	}
@@ -72,10 +97,11 @@ func (handler *Handler) GetTxs(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"items":    resp.Result[startIdx:endIdx],
+		"items":    items[startIdx:endIdx],
 		"page":     page,
 		"pageSize": size,
 		"total":    total,
+		"cached":   true,
 	})
 }
 

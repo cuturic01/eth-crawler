@@ -4,11 +4,12 @@ import (
 	"time"
 
 	"github.com/cuturic01/eth-crawler/backend/eth"
+	"github.com/cuturic01/eth-crawler/backend/storage"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
-func InitHttpServer(httpPort string, ethClient *eth.Client) *gin.Engine {
+func InitHttpServer(httpPort string, ethClient *eth.Client, cache *storage.Cache) *gin.Engine {
 	httpServer := gin.Default()
 	httpServer.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:5173"}, 
@@ -18,7 +19,7 @@ func InitHttpServer(httpPort string, ethClient *eth.Client) *gin.Engine {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
-	InitRoutes(httpServer, ethClient)
+	InitRoutes(httpServer, ethClient, cache)
 	go func() {
 		if err := httpServer.Run(":" + httpPort); err != nil {
 			panic(err)
