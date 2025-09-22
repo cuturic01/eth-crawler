@@ -1,4 +1,5 @@
 import { Container, Divider, Typography } from "@mui/material";
+import TransactionList from "../components/transaction-list";
 
 export default function Transactions() {
 	return (
@@ -16,6 +17,8 @@ export default function Transactions() {
 			</Typography>
 
 			<Divider sx={{ mb: 3, width: "100%"}} />
+
+            <TransactionList/>
 		</Container>
 	);
 }

@@ -1,4 +1,5 @@
 import { Container, Divider, Typography } from "@mui/material";
+import BalanceForm from "../components/balance-form";
 
 export default function Balance() {
 	return (
@@ -22,6 +23,8 @@ export default function Balance() {
 			</Typography>
 
 			<Divider sx={{ mb: 3, width: "100%" }} />
+
+            <BalanceForm/>
 		</Container>
 	);
 }
