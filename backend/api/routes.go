@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strconv"
 	"strings"
@@ -105,6 +106,24 @@ func paginateAndRespond(ctx *gin.Context, items []domain.TxListRow, page, size i
 	})
 }
 
+func formatUnits(amount *big.Int, decimals int) string {
+	if decimals <= 0 {
+		return amount.String()
+	}
+	tenPow := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil)
+
+	intPart := new(big.Int).Div(amount, tenPow)
+	fracPart := new(big.Int).Mod(amount, tenPow)
+
+	fracStr := fmt.Sprintf("%0*s", decimals, fracPart.String())
+
+	fracStr = strings.TrimRight(fracStr, "0")
+	if fracStr == "" {
+		return intPart.String()
+	}
+	return intPart.String() + "." + fracStr
+}
+
 func (handler *Handler) GetBalanceAt(ctx *gin.Context) {
 	addr := cleanAddr(ctx.Param("address"))
 	dateStr := ctx.Query("date")
@@ -142,7 +161,7 @@ func (handler *Handler) GetBalanceAt(ctx *gin.Context) {
 			"token":       "ETH",
 			"dateUTC":     dateStr,
 			"blockAtDate": blockNo,
-			"balanceWei":  bal.String(),
+			"balance":     bal.String(),
 		})
 		return
 	}
@@ -152,11 +171,19 @@ func (handler *Handler) GetBalanceAt(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadGateway, gin.H{"error": "eth_call(balanceOf) failed", "detail": err.Error()})
 		return
 	}
+	decimals, derr := handler.ethClient.ERC20DecimalsAtBlock(ctx2, token, blockNo)
+	if derr != nil {
+		ctx.JSON(http.StatusBadGateway, gin.H{"error": "eth_call(decimals) failed", "detail": derr.Error()})
+		return
+	}
+	formatted := formatUnits(bal, decimals)
+
 	ctx.JSON(http.StatusOK, gin.H{
-		"address":     addr,
-		"token":       token,
-		"dateUTC":     dateStr,
-		"blockAtDate": blockNo,
-		"balanceRaw":  bal.String(),
+		"address":          addr,
+		"token":            token,
+		"dateUTC":          dateStr,
+		"blockAtDate":      blockNo,
+		"decimals":         decimals,
+		"balance": formatted,
 	})
 }

@@ -92,6 +92,42 @@ func (c *Client) ETHBalanceAtBlock(ctx context.Context, addr string, blockNo uin
 	return c.rpc.BalanceAt(ctx, address, tag)
 }
 
+func (c *Client) ERC20DecimalsAtBlock(ctx context.Context, tokenAddr string, blockNo uint64) (int, error) {
+	const decimalsABI = `[{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"payable":false,"stateMutability":"view","type":"function"}]`
+
+	parsed, err := abi.JSON(strings.NewReader(decimalsABI))
+	if err != nil {
+		return 0, err
+	}
+	data, err := parsed.Pack("decimals")
+	if err != nil {
+		return 0, err
+	}
+	call := ethereum.CallMsg{
+		To:   func(a common.Address) *common.Address { return &a }(common.HexToAddress(tokenAddr)),
+		Data: data,
+	}
+	tag := new(big.Int).SetUint64(blockNo)
+	out, err := c.rpc.CallContract(ctx, call, tag)
+	if err != nil {
+		return 0, err
+	}
+
+	var u8 uint8
+	if err := parsed.UnpackIntoInterface(&u8, "decimals", out); err == nil {
+		return int(u8), nil
+	}
+	var u256 *big.Int
+	if err := parsed.UnpackIntoInterface(&u256, "decimals", out); err == nil {
+		return int(u256.Int64()), nil
+	}
+	bi := new(big.Int).SetBytes(out)
+	if bi.Sign() > 0 {
+		return int(bi.Int64()), nil
+	}
+	return 0, fmt.Errorf("unable to decode decimals")
+}
+
 func (c *Client) ERC20BalanceAtBlock(ctx context.Context, tokenAddr, holder string, blockNo uint64) (*big.Int, error) {
 	const erc20ABI = `[{"constant":true,"inputs":[{"name":"account","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"}]`
 
